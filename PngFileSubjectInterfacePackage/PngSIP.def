@@ -1,0 +1,8 @@
+LIBRARY PngFileSubjectInterfacePackage
+	EXPORTS DllRegisterServer PRIVATE
+	EXPORTS DllUnregisterServer PRIVATE
+	EXPORTS PngCryptSIPGetSignedDataMsg
+	EXPORTS PngCryptSIPPutSignedDataMsg
+	EXPORTS PngCryptSIPCreateIndirectData
+	EXPORTS PngCryptSIPVerifyIndirectData
+	EXPORTS PngIsFileSupportedName
