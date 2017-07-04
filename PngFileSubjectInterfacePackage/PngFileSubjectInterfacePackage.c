@@ -72,7 +72,7 @@ BOOL WINAPI PngCryptSIPGetSignedDataMsg(SIP_SUBJECTINFO *pSubjectInfo, DWORD pdw
 BOOL WINAPI PngCryptSIPPutSignedDataMsg(SIP_SUBJECTINFO *pSubjectInfo, DWORD dwEncodingType, DWORD *pdwIndex,
 	DWORD cbSignedDataMsg, BYTE *pbSignedDataMsg)
 {
-	return FALSE;
+	return TRUE;
 }
 
 BOOL WINAPI PngCryptSIPCreateIndirectData(SIP_SUBJECTINFO *pSubjectInfo, DWORD *pcbIndirectData,
@@ -86,8 +86,7 @@ BOOL WINAPI PngCryptSIPCreateIndirectData(SIP_SUBJECTINFO *pSubjectInfo, DWORD *
 	}
 	BYTE buffer[64] = { 0 };
 	DWORD digestSize = 64;
-	HRESULT result = PngDigestChunks(pSubjectInfo->hFile, pSubjectInfo->hProv,
-		&pSubjectInfo->DigestAlgorithm, &digestSize, &buffer[0]);
+	HRESULT result = PngDigestChunks(pSubjectInfo->hFile, &pSubjectInfo->DigestAlgorithm, &digestSize, &buffer[0]);
 	if (!SUCCEEDED(result))
 	{
 		return FALSE;

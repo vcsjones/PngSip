@@ -6,10 +6,9 @@
 #define PNG_CHUNK_HEADER_SIZE 8
 
 
-HRESULT PNGSIP_CALL PngDigestChunks(HANDLE hFile, HCRYPTPROV hProv,
-	CRYPT_ALGORITHM_IDENTIFIER *algorithm, DWORD* digestSize, PBYTE pBuffer)
+HRESULT PNGSIP_CALL PngDigestChunks(HANDLE hFile, CRYPT_ALGORITHM_IDENTIFIER *algorithm, DWORD* digestSize, PBYTE pBuffer)
 {
-	if (!hProv || !algorithm || hFile == INVALID_HANDLE_VALUE)
+	if (!algorithm || hFile == INVALID_HANDLE_VALUE)
 	{
 		return E_INVALIDARG;
 	}
@@ -19,54 +18,54 @@ HRESULT PNGSIP_CALL PngDigestChunks(HANDLE hFile, HCRYPTPROV hProv,
 	{
 		return NTE_BAD_ALGID;
 	}
-	HRESULT result = E_UNEXPECTED;
-	HCRYPTHASH hHash = { 0 };
-	BOOL createHashResult = CryptCreateHash(hProv, info->Algid, 0, 0, &hHash);
-	if (!createHashResult)
+	BCRYPT_ALG_HANDLE hAlgorithm = { 0 };
+	NTSTATUS result;
+	if (!BCRYPT_SUCCESS(result = BCryptOpenAlgorithmProvider(&hAlgorithm, info->pwszCNGAlgid, NULL, 0)))
 	{
-		return HRESULT_FROM_WIN32(GetLastError());
+		goto RET;
+	}
+	BCRYPT_HASH_HANDLE hHashHandle = { 0 };
+	if (!BCRYPT_SUCCESS(result = BCryptCreateHash(hAlgorithm, &hHashHandle, NULL, 0, NULL, 0, 0)))
+	{
+		goto RET;
 	}
 	DWORD actualHashSize = 0, actualHashSizeBuff = sizeof(DWORD);
-	if (!CryptGetHashParam(hHash, HP_HASHSIZE, (BYTE*)&actualHashSize, &actualHashSizeBuff, 0))
+	if (!BCRYPT_SUCCESS(BCryptGetProperty(hHashHandle, BCRYPT_HASH_LENGTH, (PUCHAR)&actualHashSize, sizeof(DWORD), &actualHashSizeBuff, 0)))
 	{
-		result = HRESULT_FROM_WIN32(GetLastError());;
 		goto RET;
 	}
 	if (actualHashSize > *digestSize)
 	{
-		result = NTE_BUFFER_TOO_SMALL;
 		goto RET;
 	}
 
-	if (!HashHeader(hFile, hHash))
+	if (!HashHeader(hFile, hHashHandle, &result))
 	{
-		result = HRESULT_FROM_WIN32(GetLastError());
 		goto RET;
 	}
 	for(;;)
 	{
-		if (!HashChunk(hFile, hHash))
+		if (!HashChunk(hFile, hHashHandle, &result))
 		{
 			break;
 		}
 	}
-	DWORD lastError = GetLastError();
-	if (lastError != ERROR_SUCCESS)
+	if (!BCRYPT_SUCCESS(result))
 	{
-		result = HRESULT_FROM_WIN32(lastError);
 		goto RET;
 	}
-	if (!CryptGetHashParam(hHash, HP_HASHVAL, pBuffer, digestSize, 0))
+	if (!BCRYPT_SUCCESS(result = BCryptFinishHash(hHashHandle, pBuffer, actualHashSize, 0)))
 	{
-		result = HRESULT_FROM_WIN32(lastError);
+		goto RET;
 	}
-	result = S_OK;
+	result = 0;
 RET:
-	CryptDestroyHash(hHash);
-	return result;
+	if (hHashHandle) BCryptDestroyHash(hHashHandle);
+	if (hAlgorithm) BCryptCloseAlgorithmProvider(hAlgorithm, 0);
+	return HRESULT_FROM_NT(result);
 }
 
-BOOL HashHeader(HANDLE hFile, HCRYPTHASH hHash)
+BOOL HashHeader(HANDLE hFile, BCRYPT_HASH_HANDLE hHash, NTSTATUS *result)
 {
 	DWORD bytesRead = 0;
 	BYTE buffer[BUFFER_SIZE];
@@ -76,16 +75,21 @@ BOOL HashHeader(HANDLE hFile, HCRYPTHASH hHash)
 	}
 	else if (bytesRead != PNG_HEADER_SIZE)
 	{
-		SetLastError(ERROR_BAD_FORMAT);
+		*result = STATUS_INVALID_PARAMETER;
 		return FALSE;
 	}
 	else
 	{
-		return CryptHashData(hHash, &buffer[0], PNG_HEADER_SIZE, 0);
+		if (!BCRYPT_SUCCESS(*result = BCryptHashData(hHash, &buffer[0], PNG_HEADER_SIZE, 0)))
+		{
+			return FALSE;
+		}
+		*result = 0;
+		return TRUE;
 	}
 }
 
-BOOL HashChunk(HANDLE hFile, HCRYPTHASH hHash)
+BOOL HashChunk(HANDLE hFile, BCRYPT_HASH_HANDLE hHash, NTSTATUS *result)
 {
 	DWORD bytesRead = 0;
 	BYTE buffer[BUFFER_SIZE];
@@ -112,8 +116,7 @@ BOOL HashChunk(HANDLE hFile, HCRYPTHASH hHash)
 		//Don't hash signature chunks, skip over them.
 		goto SUCCESS;
 	}
-
-	if (!CryptHashData(hHash, &buffer[0], PNG_CHUNK_HEADER_SIZE, 0))
+	if (!BCRYPT_SUCCESS(*result = BCryptHashData(hHash, &buffer[0], PNG_CHUNK_HEADER_SIZE, 0)))
 	{
 		goto ERR;
 	}
@@ -124,7 +127,7 @@ BOOL HashChunk(HANDLE hFile, HCRYPTHASH hHash)
 		{
 			goto ERR;
 		}
-		if (!CryptHashData(hHash, &buffer[0], bytesRead, 0))
+		if (!BCRYPT_SUCCESS(*result = BCryptHashData(hHash, &buffer[0], bytesRead, 0)))
 		{
 			goto ERR;
 		}
@@ -135,13 +138,13 @@ BOOL HashChunk(HANDLE hFile, HCRYPTHASH hHash)
 	{
 		goto ERR;
 	}
-	if (!CryptHashData(hHash, &buffer[0], bytesRead, 0))
+	if (!BCRYPT_SUCCESS(*result = BCryptHashData(hHash, &buffer[0], bytesRead, 0)))
 	{
 		goto ERR;
 	}
 
 SUCCESS:
-	SetLastError(0);
+	*result = 0;
 	return TRUE;
 ERR:
 	return FALSE;
