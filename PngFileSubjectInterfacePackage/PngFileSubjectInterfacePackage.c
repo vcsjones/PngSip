@@ -76,6 +76,7 @@ BOOL WINAPI PngCryptSIPPutSignedDataMsg(SIP_SUBJECTINFO *pSubjectInfo, DWORD dwE
 	{
 		return FALSE;
 	}
+
 	return TRUE;
 }
 
@@ -138,6 +139,7 @@ BOOL WINAPI PngCryptSIPCreateIndirectData(SIP_SUBJECTINFO *pSubjectInfo, DWORD *
 	pInternalIndirectData->indirectData.Data.pszObjId = NULL;
 	pInternalIndirectData->indirectData.Data.Value.cbData = 0;
 	pInternalIndirectData->indirectData.Data.Value.pbData = NULL;
+	result = ERROR_SUCCESS;
 RET:
 	SetLastError(result);
 	if (hAlgorithm) BCryptCloseAlgorithmProvider(hAlgorithm, 0);

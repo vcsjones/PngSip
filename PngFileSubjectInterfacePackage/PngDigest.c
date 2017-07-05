@@ -6,7 +6,7 @@
 #define PNG_CHUNK_HEADER_SIZE 8
 
 
-NTSTATUS PNGSIP_CALL PngDigestChunks(HANDLE hFile, BCRYPT_HANDLE hHashHandle, DWORD digestSize, PBYTE pBuffer)
+NTSTATUS PNGSIP_CALL PngDigestChunks(HANDLE hFile, BCRYPT_HASH_HANDLE hHashHandle, DWORD digestSize, PBYTE pBuffer)
 {
 	if (hFile == INVALID_HANDLE_VALUE)
 	{
