@@ -6,38 +6,13 @@
 #define PNG_CHUNK_HEADER_SIZE 8
 
 
-HRESULT PNGSIP_CALL PngDigestChunks(HANDLE hFile, CRYPT_ALGORITHM_IDENTIFIER *algorithm, DWORD* digestSize, PBYTE pBuffer)
+NTSTATUS PNGSIP_CALL PngDigestChunks(HANDLE hFile, BCRYPT_HANDLE hHashHandle, DWORD digestSize, PBYTE pBuffer)
 {
-	if (!algorithm || hFile == INVALID_HANDLE_VALUE)
+	if (hFile == INVALID_HANDLE_VALUE)
 	{
-		return E_INVALIDARG;
+		return STATUS_INVALID_PARAMETER;
 	}
-
-	PCCRYPT_OID_INFO info = CryptFindOIDInfo(CRYPT_OID_INFO_OID_KEY, algorithm->pszObjId, CRYPT_HASH_ALG_OID_GROUP_ID);
-	if (info == NULL)
-	{
-		return NTE_BAD_ALGID;
-	}
-	BCRYPT_ALG_HANDLE hAlgorithm = { 0 };
-	NTSTATUS result;
-	if (!BCRYPT_SUCCESS(result = BCryptOpenAlgorithmProvider(&hAlgorithm, info->pwszCNGAlgid, NULL, 0)))
-	{
-		goto RET;
-	}
-	BCRYPT_HASH_HANDLE hHashHandle = { 0 };
-	if (!BCRYPT_SUCCESS(result = BCryptCreateHash(hAlgorithm, &hHashHandle, NULL, 0, NULL, 0, 0)))
-	{
-		goto RET;
-	}
-	DWORD actualHashSize = 0, actualHashSizeBuff = sizeof(DWORD);
-	if (!BCRYPT_SUCCESS(BCryptGetProperty(hHashHandle, BCRYPT_HASH_LENGTH, (PUCHAR)&actualHashSize, sizeof(DWORD), &actualHashSizeBuff, 0)))
-	{
-		goto RET;
-	}
-	if (actualHashSize > *digestSize)
-	{
-		goto RET;
-	}
+	HRESULT result;
 
 	if (!HashHeader(hFile, hHashHandle, &result))
 	{
@@ -54,15 +29,13 @@ HRESULT PNGSIP_CALL PngDigestChunks(HANDLE hFile, CRYPT_ALGORITHM_IDENTIFIER *al
 	{
 		goto RET;
 	}
-	if (!BCRYPT_SUCCESS(result = BCryptFinishHash(hHashHandle, pBuffer, actualHashSize, 0)))
+	if (!BCRYPT_SUCCESS(result = BCryptFinishHash(hHashHandle, pBuffer, digestSize, 0)))
 	{
 		goto RET;
 	}
 	result = 0;
 RET:
-	if (hHashHandle) BCryptDestroyHash(hHashHandle);
-	if (hAlgorithm) BCryptCloseAlgorithmProvider(hAlgorithm, 0);
-	return HRESULT_FROM_NT(result);
+	return result;
 }
 
 BOOL HashHeader(HANDLE hFile, BCRYPT_HASH_HANDLE hHash, NTSTATUS *result)
@@ -71,6 +44,7 @@ BOOL HashHeader(HANDLE hFile, BCRYPT_HASH_HANDLE hHash, NTSTATUS *result)
 	BYTE buffer[BUFFER_SIZE];
 	if (!ReadFile(hFile, &buffer, PNG_HEADER_SIZE, &bytesRead, NULL))
 	{
+		*result = GetLastError();
 		return FALSE;
 	}
 	else if (bytesRead != PNG_HEADER_SIZE)
@@ -84,7 +58,7 @@ BOOL HashHeader(HANDLE hFile, BCRYPT_HASH_HANDLE hHash, NTSTATUS *result)
 		{
 			return FALSE;
 		}
-		*result = 0;
+		*result = ERROR_SUCCESS;
 		return TRUE;
 	}
 }
@@ -99,7 +73,7 @@ BOOL HashChunk(HANDLE hFile, BCRYPT_HASH_HANDLE hHash, NTSTATUS *result)
 	}
 	if (bytesRead == 0)
 	{
-		SetLastError(0);
+		SetLastError(ERROR_SUCCESS);
 		return FALSE;
 	}
 	else if (bytesRead != PNG_CHUNK_HEADER_SIZE)
@@ -144,7 +118,7 @@ BOOL HashChunk(HANDLE hFile, BCRYPT_HASH_HANDLE hHash, NTSTATUS *result)
 	}
 
 SUCCESS:
-	*result = 0;
+	*result = ERROR_SUCCESS;
 	return TRUE;
 ERR:
 	return FALSE;

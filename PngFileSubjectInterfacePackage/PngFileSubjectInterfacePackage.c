@@ -4,6 +4,8 @@
 #include "PngFileSubjectInterfacePackage.h"
 #include "PngDigest.h"
 
+#define MAX_HASH_SIZE 64
+
 STDAPI DllRegisterServer()
 {
 	SIP_ADD_NEWPROVIDER provider;
@@ -72,36 +74,77 @@ BOOL WINAPI PngCryptSIPGetSignedDataMsg(SIP_SUBJECTINFO *pSubjectInfo, DWORD pdw
 BOOL WINAPI PngCryptSIPPutSignedDataMsg(SIP_SUBJECTINFO *pSubjectInfo, DWORD dwEncodingType, DWORD *pdwIndex,
 	DWORD cbSignedDataMsg, BYTE *pbSignedDataMsg)
 {
+	if (*pdwIndex != 0)
+	{
+		return FALSE;
+	}
 	return TRUE;
 }
 
 BOOL WINAPI PngCryptSIPCreateIndirectData(SIP_SUBJECTINFO *pSubjectInfo, DWORD *pcbIndirectData,
 	SIP_INDIRECT_DATA *pIndirectData)
 {
-	size_t hashSizeLen = sizeof(CHAR) * strlen(pSubjectInfo->DigestAlgorithm.pszObjId) + sizeof(CHAR);
+	NTSTATUS result;
+	PCCRYPT_OID_INFO info = CryptFindOIDInfo(CRYPT_OID_INFO_OID_KEY, pSubjectInfo->DigestAlgorithm.pszObjId, CRYPT_HASH_ALG_OID_GROUP_ID);
+	if (info == NULL)
+	{
+		result = NTE_BAD_ALGID;
+		goto RET;
+	}
+	BCRYPT_ALG_HANDLE hAlgorithm = { 0 };
+	if (!BCRYPT_SUCCESS(result = BCryptOpenAlgorithmProvider(&hAlgorithm, info->pwszCNGAlgid, NULL, 0)))
+	{
+		goto RET;
+	}
+	BCRYPT_HASH_HANDLE hHashHandle = { 0 };
+	if (!BCRYPT_SUCCESS(result = BCryptCreateHash(hAlgorithm, &hHashHandle, NULL, 0, NULL, 0, 0)))
+	{
+		goto RET;
+	}
+	DWORD dwHashSize = 0, cbHashSize = sizeof(DWORD);
+	if (!BCRYPT_SUCCESS(result = BCryptGetProperty(hHashHandle, BCRYPT_HASH_LENGTH, (PUCHAR)&dwHashSize, sizeof(DWORD), &cbHashSize, 0)))
+	{
+		goto RET;
+	}
+	size_t hashAlgOidLen = sizeof(CHAR) * strlen(pSubjectInfo->DigestAlgorithm.pszObjId) + sizeof(CHAR);
+	DWORD indirectDataSize = (DWORD)(sizeof(SIP_INDIRECT_DATA) + dwHashSize + hashAlgOidLen);
 	if (pIndirectData == NULL)
 	{
-		*pcbIndirectData = (DWORD)(sizeof(SIP_INDIRECT_DATA) + 64 + hashSizeLen);
-		return TRUE;
+		result = ERROR_SUCCESS;
+		*pcbIndirectData = indirectDataSize;
+		goto RET;
 	}
-	BYTE buffer[64] = { 0 };
-	DWORD digestSize = 64;
-	HRESULT result = PngDigestChunks(pSubjectInfo->hFile, &pSubjectInfo->DigestAlgorithm, &digestSize, &buffer[0]);
+	else if (*pcbIndirectData < indirectDataSize)
+	{
+		result = ERROR_INSUFFICIENT_BUFFER;
+		goto RET;
+	}
+	result = PngDigestChunks(pSubjectInfo->hFile, hHashHandle, dwHashSize, (*(BYTE **)&pIndirectData) + sizeof(SIP_INDIRECT_DATA));
 	if (!SUCCEEDED(result))
 	{
 		return FALSE;
 	}
-	memcpy(pIndirectData + sizeof(SIP_INDIRECT_DATA), &buffer, digestSize);
-	memcpy(pIndirectData + sizeof(SIP_INDIRECT_DATA) + digestSize, pSubjectInfo->DigestAlgorithm.pszObjId, hashSizeLen);
-	pIndirectData->Digest.cbData = digestSize;
-	pIndirectData->Digest.pbData = (BYTE*)(pIndirectData + sizeof(SIP_INDIRECT_DATA));
-	pIndirectData->DigestAlgorithm.pszObjId = (LPSTR)(pIndirectData + sizeof(SIP_INDIRECT_DATA) + digestSize);
+	strcpy_s((*(char **)&pIndirectData) + sizeof(SIP_INDIRECT_DATA) + dwHashSize, hashAlgOidLen, pSubjectInfo->DigestAlgorithm.pszObjId);
+	pIndirectData->Digest.cbData = dwHashSize;
+	pIndirectData->Digest.pbData = (*(BYTE **)&pIndirectData) + sizeof(SIP_INDIRECT_DATA);
+	pIndirectData->DigestAlgorithm.pszObjId = (LPSTR)((*(char **)&pIndirectData) + sizeof(SIP_INDIRECT_DATA) + dwHashSize);
 	pIndirectData->DigestAlgorithm.Parameters.cbData = 0;
 	pIndirectData->DigestAlgorithm.Parameters.pbData = NULL;
 	pIndirectData->Data.pszObjId = NULL;
 	pIndirectData->Data.Value.cbData = 0;
 	pIndirectData->Data.Value.pbData = NULL;
-	return TRUE;
+RET:
+	SetLastError(result);
+	if (hAlgorithm) BCryptCloseAlgorithmProvider(hAlgorithm, 0);
+	if (hHashHandle) BCryptDestroyHash(hHashHandle);
+	if (result == ERROR_SUCCESS)
+	{
+		return TRUE;
+	}
+	else
+	{
+		return FALSE;
+	}
 }
 
 BOOL WINAPI PngCryptSIPVerifyIndirectData(SIP_SUBJECTINFO *pSubjectInfo, SIP_INDIRECT_DATA *pIndirectData)
