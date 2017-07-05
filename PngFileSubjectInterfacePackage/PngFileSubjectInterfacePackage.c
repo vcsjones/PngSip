@@ -4,8 +4,6 @@
 #include "PngFileSubjectInterfacePackage.h"
 #include "PngDigest.h"
 
-#define MAX_HASH_SIZE 64
-
 STDAPI DllRegisterServer()
 {
 	SIP_ADD_NEWPROVIDER provider;
@@ -85,6 +83,7 @@ BOOL WINAPI PngCryptSIPCreateIndirectData(SIP_SUBJECTINFO *pSubjectInfo, DWORD *
 	SIP_INDIRECT_DATA *pIndirectData)
 {
 	NTSTATUS result;
+	size_t oidLen = strlen(pSubjectInfo->DigestAlgorithm.pszObjId) + sizeof(CHAR);
 	PCCRYPT_OID_INFO info = CryptFindOIDInfo(CRYPT_OID_INFO_OID_KEY, pSubjectInfo->DigestAlgorithm.pszObjId, CRYPT_HASH_ALG_OID_GROUP_ID);
 	if (info == NULL)
 	{
@@ -106,33 +105,39 @@ BOOL WINAPI PngCryptSIPCreateIndirectData(SIP_SUBJECTINFO *pSubjectInfo, DWORD *
 	{
 		goto RET;
 	}
-	size_t hashAlgOidLen = sizeof(CHAR) * strlen(pSubjectInfo->DigestAlgorithm.pszObjId) + sizeof(CHAR);
-	DWORD indirectDataSize = (DWORD)(sizeof(SIP_INDIRECT_DATA) + dwHashSize + hashAlgOidLen);
+	if (dwHashSize > MAX_HASH_SIZE || oidLen > MAX_OID_SIZE)
+	{
+		result = NTE_BAD_ALGID;
+		goto RET;
+	}
 	if (pIndirectData == NULL)
 	{
 		result = ERROR_SUCCESS;
-		*pcbIndirectData = indirectDataSize;
+		*pcbIndirectData = sizeof(INTERNAL_SIP_INDIRECT_DATA);
 		goto RET;
 	}
-	else if (*pcbIndirectData < indirectDataSize)
+	if (*pcbIndirectData < sizeof(INTERNAL_SIP_INDIRECT_DATA))
 	{
 		result = ERROR_INSUFFICIENT_BUFFER;
 		goto RET;
 	}
-	result = PngDigestChunks(pSubjectInfo->hFile, hHashHandle, dwHashSize, (*(BYTE **)&pIndirectData) + sizeof(SIP_INDIRECT_DATA));
+	INTERNAL_SIP_INDIRECT_DATA* pInternalIndirectData = (INTERNAL_SIP_INDIRECT_DATA*)pIndirectData;
+	memset(pInternalIndirectData, 0, sizeof(INTERNAL_SIP_INDIRECT_DATA));
+	result = PngDigestChunks(pSubjectInfo->hFile, hHashHandle, dwHashSize, &pInternalIndirectData->digest[0]);
 	if (!SUCCEEDED(result))
 	{
 		return FALSE;
 	}
-	strcpy_s((*(char **)&pIndirectData) + sizeof(SIP_INDIRECT_DATA) + dwHashSize, hashAlgOidLen, pSubjectInfo->DigestAlgorithm.pszObjId);
-	pIndirectData->Digest.cbData = dwHashSize;
-	pIndirectData->Digest.pbData = (*(BYTE **)&pIndirectData) + sizeof(SIP_INDIRECT_DATA);
-	pIndirectData->DigestAlgorithm.pszObjId = (LPSTR)((*(char **)&pIndirectData) + sizeof(SIP_INDIRECT_DATA) + dwHashSize);
-	pIndirectData->DigestAlgorithm.Parameters.cbData = 0;
-	pIndirectData->DigestAlgorithm.Parameters.pbData = NULL;
-	pIndirectData->Data.pszObjId = NULL;
-	pIndirectData->Data.Value.cbData = 0;
-	pIndirectData->Data.Value.pbData = NULL;
+
+	strcpy_s(&pInternalIndirectData->oid[0], oidLen, pSubjectInfo->DigestAlgorithm.pszObjId);
+	pInternalIndirectData->indirectData.Digest.cbData = dwHashSize;
+	pInternalIndirectData->indirectData.Digest.pbData = &pInternalIndirectData->digest[0];
+	pInternalIndirectData->indirectData.DigestAlgorithm.pszObjId = pInternalIndirectData->oid;
+	pInternalIndirectData->indirectData.DigestAlgorithm.Parameters.cbData = 0;
+	pInternalIndirectData->indirectData.DigestAlgorithm.Parameters.pbData = NULL;
+	pInternalIndirectData->indirectData.Data.pszObjId = NULL;
+	pInternalIndirectData->indirectData.Data.Value.cbData = 0;
+	pInternalIndirectData->indirectData.Data.Value.pbData = NULL;
 RET:
 	SetLastError(result);
 	if (hAlgorithm) BCryptCloseAlgorithmProvider(hAlgorithm, 0);
