@@ -38,7 +38,7 @@ RET:
 	return result;
 }
 
-BOOL HashHeader(HANDLE hFile, BCRYPT_HASH_HANDLE hHash, NTSTATUS *result)
+BOOL PNGSIP_CALL HashHeader(HANDLE hFile, BCRYPT_HASH_HANDLE hHash, NTSTATUS *result)
 {
 	DWORD bytesRead = 0;
 	BYTE buffer[BUFFER_SIZE];
@@ -63,7 +63,7 @@ BOOL HashHeader(HANDLE hFile, BCRYPT_HASH_HANDLE hHash, NTSTATUS *result)
 	}
 }
 
-BOOL HashChunk(HANDLE hFile, BCRYPT_HASH_HANDLE hHash, NTSTATUS *result)
+BOOL PNGSIP_CALL HashChunk(HANDLE hFile, BCRYPT_HASH_HANDLE hHash, NTSTATUS *result)
 {
 	DWORD bytesRead = 0;
 	BYTE buffer[BUFFER_SIZE];
