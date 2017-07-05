@@ -1,9 +1,13 @@
 #include "stdafx.h"
 #include "PngDigest.h"
+#include "crc.h"
+#include <intrin.h>
 
 #define BUFFER_SIZE 0x10000
 #define PNG_HEADER_SIZE 8
 #define PNG_CHUNK_HEADER_SIZE 8
+
+
 
 
 NTSTATUS PNGSIP_CALL PngDigestChunks(HANDLE hFile, BCRYPT_HASH_HANDLE hHashHandle, DWORD digestSize, PBYTE pBuffer)
@@ -122,4 +126,53 @@ SUCCESS:
 	return TRUE;
 ERR:
 	return FALSE;
+}
+
+BOOL PNGSIP_CALL PngPutDigest(HANDLE hFile, DWORD dwSignatureSize, PBYTE pSignature, NTSTATUS *result)
+{
+	DWORD status;
+	status = SetFilePointer(hFile, -12, NULL, FILE_END);
+	if (status == INVALID_SET_FILE_POINTER)
+	{
+		*result = GetLastError();
+		return FALSE;
+	}
+
+	DWORD dwBytesWritten;
+	DWORD dwSignatureSizeBigEndian = _byteswap_ulong(dwSignatureSize);
+
+	if (!WriteFile(hFile, &dwSignatureSizeBigEndian, sizeof(DWORD), &dwBytesWritten, NULL))
+	{
+		*result = GetLastError();
+		return FALSE;
+	}
+	if (!WriteFile(hFile, PNG_SIG_CHUNK_TYPE, 4, &dwBytesWritten, NULL))
+	{
+		*result = GetLastError();
+		return FALSE;
+	}
+	if (!WriteFile(hFile, pSignature, dwSignatureSize, &dwBytesWritten, NULL))
+	{
+		*result = GetLastError();
+		return FALSE;
+	}
+	unsigned long checksum = crc_init();
+	checksum = update_crc(checksum, PNG_SIG_CHUNK_TYPE, 4);
+	checksum = update_crc(checksum, pSignature, dwSignatureSize);
+	checksum = crc_finish(checksum);
+	checksum = _byteswap_ulong(checksum);
+	if (!WriteFile(hFile, &checksum, sizeof(DWORD), &dwBytesWritten, NULL))
+	{
+		*result = GetLastError();
+		return FALSE;
+	}
+
+	BYTE iendChunk[12] = { 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82 };
+	if (!WriteFile(hFile, &iendChunk, 12, &dwBytesWritten, NULL))
+	{
+		*result = GetLastError();
+		return FALSE;
+	}
+	*result = ERROR_SUCCESS;
+	return TRUE;
 }

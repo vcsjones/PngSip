@@ -77,7 +77,8 @@ BOOL WINAPI PngCryptSIPPutSignedDataMsg(SIP_SUBJECTINFO *pSubjectInfo, DWORD dwE
 		return FALSE;
 	}
 
-	return TRUE;
+	NTSTATUS result;
+	return PngPutDigest(pSubjectInfo->hFile, cbSignedDataMsg, pbSignedDataMsg, &result);
 }
 
 BOOL WINAPI PngCryptSIPCreateIndirectData(SIP_SUBJECTINFO *pSubjectInfo, DWORD *pcbIndirectData,
