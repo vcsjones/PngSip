@@ -176,3 +176,74 @@ BOOL PNGSIP_CALL PngPutDigest(HANDLE hFile, DWORD dwSignatureSize, PBYTE pSignat
 	*result = ERROR_SUCCESS;
 	return TRUE;
 }
+
+BOOL PNGSIP_CALL PngGetDigest(HANDLE hFile, DWORD* pcbSignatureSize, PBYTE pSignature, NTSTATUS *result)
+{
+	NTSTATUS status;
+	if (SetFilePointer(hFile, PNG_HEADER_SIZE, NULL, FILE_BEGIN) == INVALID_SET_FILE_POINTER)
+	{
+		status = GetLastError();
+		goto ERR;
+	}
+	DWORD bytesRead = 0, totalRead = 0;
+	BYTE buffer[BUFFER_SIZE];
+	for (;;)
+	{
+		if (!ReadFile(hFile, &buffer[0], PNG_CHUNK_HEADER_SIZE, &bytesRead, NULL))
+		{
+			status = GetLastError();
+			goto ERR;
+		}
+		if (bytesRead < PNG_CHUNK_HEADER_SIZE)
+		{
+			status = ERROR_BAD_FORMAT;
+			goto ERR;
+		}
+		const unsigned int size = buffer[3] | buffer[2] << 8 | buffer[1] << 16 | buffer[0] << 24;
+		const unsigned char* tag = ((char*)&buffer[4]);
+		if (memcmp(tag, PNG_SIG_CHUNK_TYPE, 4) != 0)
+		{
+			SetFilePointer(hFile, size + 4, NULL, FILE_CURRENT);
+			continue;
+		}
+		if (pSignature == NULL)
+		{
+			*pcbSignatureSize = size;
+			goto SUCCESS;
+		}
+		else if (*pcbSignatureSize < size)
+		{
+			status = ERROR_INSUFFICIENT_BUFFER;
+			goto ERR;
+		}
+		for (DWORD i = 0; i < size / BUFFER_SIZE; i++)
+		{
+			if (!ReadFile(hFile, &buffer, BUFFER_SIZE, &bytesRead, NULL))
+			{
+				status = GetLastError();
+				goto ERR;
+			}
+			memcpy(pSignature + totalRead, &buffer[0], bytesRead);
+			totalRead += bytesRead;
+		}
+		DWORD remainder = size % BUFFER_SIZE;
+		if (remainder > 0)
+		{
+			if (!ReadFile(hFile, &buffer, remainder, &bytesRead, NULL))
+			{
+				status = GetLastError();
+				goto ERR;
+			}
+			memcpy(pSignature + totalRead, &buffer[0], bytesRead);
+			totalRead += bytesRead;
+		}
+		*pcbSignatureSize = totalRead;
+		goto SUCCESS;
+	}
+SUCCESS:
+	*result = ERROR_SUCCESS;
+	return TRUE;
+ERR:
+	*result = status;
+	return FALSE;
+}

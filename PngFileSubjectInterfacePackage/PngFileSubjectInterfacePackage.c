@@ -63,10 +63,18 @@ BOOL WINAPI PngIsFileSupportedName(WCHAR *pwszFileName, GUID *pgSubject)
 	return FALSE;
 }
 
-BOOL WINAPI PngCryptSIPGetSignedDataMsg(SIP_SUBJECTINFO *pSubjectInfo, DWORD pdwEncodingType, DWORD dwIndex,
+BOOL WINAPI PngCryptSIPGetSignedDataMsg(SIP_SUBJECTINFO *pSubjectInfo, DWORD* pdwEncodingType, DWORD dwIndex,
 	DWORD *pcbSignedDataMsg, BYTE *pbSignedDataMsg)
 {
-	return FALSE;
+	if (dwIndex != 0)
+	{
+		return FALSE;
+	}
+	*pdwEncodingType = X509_ASN_ENCODING | PKCS_7_ASN_ENCODING;
+	NTSTATUS status;
+	BOOL result = PngGetDigest(pSubjectInfo->hFile, pcbSignedDataMsg, pbSignedDataMsg, &status);
+	SetLastError(status);
+	return result;
 }
 
 BOOL WINAPI PngCryptSIPPutSignedDataMsg(SIP_SUBJECTINFO *pSubjectInfo, DWORD dwEncodingType, DWORD *pdwIndex,
@@ -77,8 +85,10 @@ BOOL WINAPI PngCryptSIPPutSignedDataMsg(SIP_SUBJECTINFO *pSubjectInfo, DWORD dwE
 		return FALSE;
 	}
 
-	NTSTATUS result;
-	return PngPutDigest(pSubjectInfo->hFile, cbSignedDataMsg, pbSignedDataMsg, &result);
+	NTSTATUS status;
+	BOOL result = PngPutDigest(pSubjectInfo->hFile, cbSignedDataMsg, pbSignedDataMsg, &status);
+	SetLastError(status);
+	return result;
 }
 
 BOOL WINAPI PngCryptSIPCreateIndirectData(SIP_SUBJECTINFO *pSubjectInfo, DWORD *pcbIndirectData,
