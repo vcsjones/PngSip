@@ -16,6 +16,12 @@ NTSTATUS PNGSIP_CALL PngDigestChunks(HANDLE hFile, BCRYPT_HASH_HANDLE hHashHandl
 	{
 		return STATUS_INVALID_PARAMETER;
 	}
+	DWORD status;
+	status = SetFilePointer(hFile, 0, NULL, FILE_BEGIN);
+	if (status == INVALID_SET_FILE_POINTER)
+	{
+		return GetLastError();
+	}
 	HRESULT result;
 
 	if (!HashHeader(hFile, hHashHandle, &result))
@@ -89,9 +95,9 @@ BOOL PNGSIP_CALL HashChunk(HANDLE hFile, BCRYPT_HASH_HANDLE hHash, NTSTATUS *res
 	const unsigned int size = buffer[3] | buffer[2] << 8 | buffer[1] << 16 | buffer[0] << 24;
 	const unsigned char* tag = ((char*)&buffer[4]);
 
-	if (strcmp(tag, PNG_SIG_CHUNK_TYPE) == 0)
+	if (memcmp(tag, PNG_SIG_CHUNK_TYPE, 4) == 0)
 	{
-		//Don't hash signature chunks, skip over them.
+		SetFilePointer(hFile, size + 4, NULL, FILE_CURRENT);
 		goto SUCCESS;
 	}
 	if (!BCRYPT_SUCCESS(*result = BCryptHashData(hHash, &buffer[0], PNG_CHUNK_HEADER_SIZE, 0)))

@@ -167,7 +167,46 @@ RET:
 
 BOOL WINAPI PngCryptSIPVerifyIndirectData(SIP_SUBJECTINFO *pSubjectInfo, SIP_INDIRECT_DATA *pIndirectData)
 {
-	return FALSE;
+	NTSTATUS result;
+	BOOL success = FALSE;
+	PCCRYPT_OID_INFO info = CryptFindOIDInfo(CRYPT_OID_INFO_OID_KEY, pIndirectData->DigestAlgorithm.pszObjId, CRYPT_HASH_ALG_OID_GROUP_ID);
+	if (info == NULL)
+	{
+		result = NTE_BAD_ALGID;
+		goto RET;
+	}
+	BCRYPT_ALG_HANDLE hAlgorithm = { 0 };
+	if (!BCRYPT_SUCCESS(result = BCryptOpenAlgorithmProvider(&hAlgorithm, info->pwszCNGAlgid, NULL, 0)))
+	{
+		goto RET;
+	}
+	BCRYPT_HASH_HANDLE hHashHandle = { 0 };
+	if (!BCRYPT_SUCCESS(result = BCryptCreateHash(hAlgorithm, &hHashHandle, NULL, 0, NULL, 0, 0)))
+	{
+		goto RET;
+	}
+	DWORD dwHashSize = 0, cbHashSize = sizeof(DWORD);
+	if (!BCRYPT_SUCCESS(result = BCryptGetProperty(hHashHandle, BCRYPT_HASH_LENGTH, (PUCHAR)&dwHashSize, sizeof(DWORD), &cbHashSize, 0)))
+	{
+		goto RET;
+	}
+	if (dwHashSize > MAX_HASH_SIZE || dwHashSize != pIndirectData->Digest.cbData)
+	{
+		result = NTE_BAD_ALGID;
+		goto RET;
+	}
+	BYTE digestBuffer[MAX_HASH_SIZE];
+	result = PngDigestChunks(pSubjectInfo->hFile, hHashHandle, dwHashSize, &digestBuffer[0]);
+	if (!SUCCEEDED(result))
+	{
+		goto RET;
+	}
+	success = memcmp(&digestBuffer, pIndirectData->Digest.pbData, dwHashSize) == 0;
+RET:
+	SetLastError(result);
+	if (hAlgorithm) BCryptCloseAlgorithmProvider(hAlgorithm, 0);
+	if (hHashHandle) BCryptDestroyHash(hHashHandle);
+	return success;
 }
 
 BOOL WINAPI PngCryptSIPRemoveSignedDataMsg(SIP_SUBJECTINFO *pSubjectInfo, DWORD dwIndex)
