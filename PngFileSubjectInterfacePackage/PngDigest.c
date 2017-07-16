@@ -10,23 +10,22 @@
 
 
 
-NTSTATUS PNGSIP_CALL PngDigestChunks(HANDLE hFile, BCRYPT_HASH_HANDLE hHashHandle, DWORD digestSize, PBYTE pBuffer)
+BOOL PNGSIP_CALL PngDigestChunks(HANDLE hFile, BCRYPT_HASH_HANDLE hHashHandle,
+	DWORD digestSize, PBYTE pBuffer, DWORD* error)
 {
+	PNGSIP_ERROR_BEGIN;
 	if (hFile == INVALID_HANDLE_VALUE)
 	{
-		return STATUS_INVALID_PARAMETER;
+		PNGSIP_ERROR_FAIL(ERROR_INVALID_PARAMETER);
 	}
-	DWORD status;
-	status = SetFilePointer(hFile, 0, NULL, FILE_BEGIN);
-	if (status == INVALID_SET_FILE_POINTER)
+	if (SetFilePointer(hFile, 0, NULL, FILE_BEGIN) == INVALID_SET_FILE_POINTER)
 	{
-		return GetLastError();
+		PNGSIP_ERROR_FAIL(ERROR_BAD_FORMAT);
 	}
-	HRESULT result;
-
+	DWORD result;
 	if (!HashHeader(hFile, hHashHandle, &result))
 	{
-		goto RET;
+		PNGSIP_ERROR_FAIL(result);
 	}
 	for(;;)
 	{
@@ -35,103 +34,104 @@ NTSTATUS PNGSIP_CALL PngDigestChunks(HANDLE hFile, BCRYPT_HASH_HANDLE hHashHandl
 			break;
 		}
 	}
-	if (!BCRYPT_SUCCESS(result))
+	if (result != ERROR_SUCCESS)
 	{
-		goto RET;
+		PNGSIP_ERROR_FAIL(result);
 	}
-	if (!BCRYPT_SUCCESS(result = BCryptFinishHash(hHashHandle, pBuffer, digestSize, 0)))
+	if (!BCRYPT_SUCCESS(BCryptFinishHash(hHashHandle, pBuffer, digestSize, 0)))
 	{
-		goto RET;
+		PNGSIP_ERROR_FAIL(ERROR_INVALID_OPERATION);
 	}
-	result = 0;
-RET:
-	return result;
+	PNGSIP_ERROR_SUCCESS();
+
+	PNGSIP_ERROR_FINISH_BEGIN_CLEANUP_TRANSFER(*error);
+	PNGSIP_ERROR_FINISH_END_CLEANUP;
 }
 
-BOOL PNGSIP_CALL HashHeader(HANDLE hFile, BCRYPT_HASH_HANDLE hHash, NTSTATUS *result)
+BOOL PNGSIP_CALL HashHeader(HANDLE hFile, BCRYPT_HASH_HANDLE hHash, DWORD *error)
 {
+	PNGSIP_ERROR_BEGIN;
 	DWORD bytesRead = 0;
 	BYTE buffer[BUFFER_SIZE];
 	if (!ReadFile(hFile, &buffer, PNG_HEADER_SIZE, &bytesRead, NULL))
 	{
-		*result = GetLastError();
-		return FALSE;
+		PNGSIP_ERROR_FAIL_LAST_ERROR();
 	}
-	else if (bytesRead != PNG_HEADER_SIZE)
+	if (bytesRead != PNG_HEADER_SIZE)
 	{
-		*result = STATUS_INVALID_PARAMETER;
-		return FALSE;
+		PNGSIP_ERROR_FAIL(STATUS_INVALID_PARAMETER);
 	}
-	else
+
+	if (!BCRYPT_SUCCESS(BCryptHashData(hHash, &buffer[0], PNG_HEADER_SIZE, 0)))
 	{
-		if (!BCRYPT_SUCCESS(*result = BCryptHashData(hHash, &buffer[0], PNG_HEADER_SIZE, 0)))
-		{
-			return FALSE;
-		}
-		*result = ERROR_SUCCESS;
-		return TRUE;
+		PNGSIP_ERROR_FAIL(ERROR_INVALID_OPERATION);
 	}
+	PNGSIP_ERROR_SUCCESS();
+	
+	PNGSIP_ERROR_FINISH_BEGIN_CLEANUP_TRANSFER(*error);
+	PNGSIP_ERROR_FINISH_END_CLEANUP;
 }
 
-BOOL PNGSIP_CALL HashChunk(HANDLE hFile, BCRYPT_HASH_HANDLE hHash, NTSTATUS *result)
+BOOL PNGSIP_CALL HashChunk(HANDLE hFile, BCRYPT_HASH_HANDLE hHash, DWORD *error)
 {
+	PNGSIP_ERROR_BEGIN;
 	DWORD bytesRead = 0;
 	BYTE buffer[BUFFER_SIZE];
 	if (!ReadFile(hFile, &buffer, PNG_CHUNK_HEADER_SIZE, &bytesRead, NULL))
 	{
-		goto ERR;
+		PNGSIP_ERROR_FAIL_LAST_ERROR();
 	}
 	if (bytesRead == 0)
 	{
-		SetLastError(ERROR_SUCCESS);
-		return FALSE;
+		// We "fail" here even though everything was successful.
+		PNGSIP_ERROR_FAIL(ERROR_SUCCESS);
 	}
-	else if (bytesRead != PNG_CHUNK_HEADER_SIZE)
+	if (bytesRead != PNG_CHUNK_HEADER_SIZE)
 	{
-		SetLastError(ERROR_BAD_FORMAT);
-		goto ERR;
+		PNGSIP_ERROR_FAIL(ERROR_BAD_FORMAT);
 	}
 
 	const unsigned int size = buffer[3] | buffer[2] << 8 | buffer[1] << 16 | buffer[0] << 24;
 	const unsigned char* tag = ((char*)&buffer[4]);
 
-	if (memcmp(tag, PNG_SIG_CHUNK_TYPE, 4) == 0)
+	if (0 == memcmp(tag, PNG_SIG_CHUNK_TYPE, 4))
 	{
-		SetFilePointer(hFile, size + 4, NULL, FILE_CURRENT);
-		goto SUCCESS;
+		if (INVALID_SET_FILE_POINTER == SetFilePointer(hFile, size + 4, NULL, FILE_CURRENT))
+		{
+			PNGSIP_ERROR_FAIL(ERROR_INVALID_OPERATION);
+		}
+		PNGSIP_ERROR_SUCCESS();
 	}
-	if (!BCRYPT_SUCCESS(*result = BCryptHashData(hHash, &buffer[0], PNG_CHUNK_HEADER_SIZE, 0)))
+	if (!BCRYPT_SUCCESS(BCryptHashData(hHash, &buffer[0], PNG_CHUNK_HEADER_SIZE, 0)))
 	{
-		goto ERR;
+		PNGSIP_ERROR_FAIL(ERROR_INVALID_OPERATION);
 	}
 
 	for (DWORD i = 0; i < size / BUFFER_SIZE; i++)
 	{
 		if (!ReadFile(hFile, &buffer, BUFFER_SIZE, &bytesRead, NULL))
 		{
-			goto ERR;
+			PNGSIP_ERROR_FAIL_LAST_ERROR();
 		}
-		if (!BCRYPT_SUCCESS(*result = BCryptHashData(hHash, &buffer[0], bytesRead, 0)))
+		if (!BCRYPT_SUCCESS(BCryptHashData(hHash, &buffer[0], bytesRead, 0)))
 		{
-			goto ERR;
+			PNGSIP_ERROR_FAIL(ERROR_INVALID_OPERATION);
 		}
 	}
 
 	DWORD remainder = (size % BUFFER_SIZE) + 4; //Add 4 to include the CRC
 	if (!ReadFile(hFile, &buffer, remainder, &bytesRead, NULL))
 	{
-		goto ERR;
+		PNGSIP_ERROR_FAIL_LAST_ERROR();
 	}
-	if (!BCRYPT_SUCCESS(*result = BCryptHashData(hHash, &buffer[0], bytesRead, 0)))
+	if (!BCRYPT_SUCCESS(BCryptHashData(hHash, &buffer[0], bytesRead, 0)))
 	{
-		goto ERR;
+		PNGSIP_ERROR_FAIL(ERROR_INVALID_OPERATION);
 	}
+	PNGSIP_ERROR_SUCCESS();
 
-SUCCESS:
-	*result = ERROR_SUCCESS;
-	return TRUE;
-ERR:
-	return FALSE;
+	PNGSIP_ERROR_FINISH_BEGIN_CLEANUP_TRANSFER(*error);
+	PNGSIP_ERROR_FINISH_END_CLEANUP;
 }
 
 BOOL PNGSIP_CALL PngPutDigest(HANDLE hFile, DWORD dwSignatureSize, PBYTE pSignature, DWORD* error)
@@ -167,12 +167,13 @@ BOOL PNGSIP_CALL PngPutDigest(HANDLE hFile, DWORD dwSignatureSize, PBYTE pSignat
 		PNGSIP_ERROR_FAIL_LAST_ERROR();
 	}
 
-	BYTE iendChunk[12] = { 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82 };
+	const BYTE iendChunk[12] = { 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82 };
 	if (!WriteFile(hFile, &iendChunk, 12, &dwBytesWritten, NULL))
 	{
 		PNGSIP_ERROR_FAIL_LAST_ERROR();
 	}
 	PNGSIP_ERROR_SUCCESS();
+
 	PNGSIP_ERROR_FINISH_BEGIN_CLEANUP_TRANSFER(*error);
 	PNGSIP_ERROR_FINISH_END_CLEANUP;
 }
@@ -239,6 +240,8 @@ BOOL PNGSIP_CALL PngGetDigest(HANDLE hFile, DWORD* pcbSignatureSize, PBYTE pSign
 		*pcbSignatureSize = totalRead;
 		PNGSIP_ERROR_SUCCESS();
 	}
+	PNGSIP_ERROR_FAIL(TRUST_E_SUBJECT_NOT_TRUSTED);
+
 	PNGSIP_ERROR_FINISH_BEGIN_CLEANUP_TRANSFER(*error);
 	PNGSIP_ERROR_FINISH_END_CLEANUP;
 }

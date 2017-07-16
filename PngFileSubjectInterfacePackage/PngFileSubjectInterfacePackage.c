@@ -162,8 +162,8 @@ BOOL WINAPI PngCryptSIPCreateIndirectData(SIP_SUBJECTINFO *pSubjectInfo, DWORD *
 	INTERNAL_SIP_INDIRECT_DATA* pInternalIndirectData = (INTERNAL_SIP_INDIRECT_DATA*)pIndirectData;
 	memset(pInternalIndirectData, 0, sizeof(INTERNAL_SIP_INDIRECT_DATA));
 
-	NTSTATUS error = PngDigestChunks(pSubjectInfo->hFile, hHashHandle, dwHashSize, &pInternalIndirectData->digest[0]);
-	if (!SUCCEEDED(error))
+	DWORD error;
+	if (PngDigestChunks(pSubjectInfo->hFile, hHashHandle, dwHashSize, &pInternalIndirectData->digest[0], &error))
 	{
 		PNGSIP_ERROR_FAIL(error);
 	}
@@ -223,11 +223,10 @@ BOOL WINAPI PngCryptSIPVerifyIndirectData(SIP_SUBJECTINFO *pSubjectInfo, SIP_IND
 		PNGSIP_ERROR_FAIL(ERROR_INVALID_PARAMETER);
 	}
 	BYTE digestBuffer[MAX_HASH_SIZE];
-	NTSTATUS result = PngDigestChunks(pSubjectInfo->hFile, hHashHandle, dwHashSize, &digestBuffer[0]);
-	if (!SUCCEEDED(result))
+	DWORD error;
+	if (!PngDigestChunks(pSubjectInfo->hFile, hHashHandle, dwHashSize, &digestBuffer[0], &error))
 	{
-		//TODO: Fix digest chunks and carry that along.
-		PNGSIP_ERROR_FAIL(result);
+		PNGSIP_ERROR_FAIL(error);
 	}
 	if (0 == memcmp(&digestBuffer, pIndirectData->Digest.pbData, dwHashSize))
 	{
