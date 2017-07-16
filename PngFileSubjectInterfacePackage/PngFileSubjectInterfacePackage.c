@@ -69,15 +69,30 @@ BOOL WINAPI PngIsFileSupportedName(WCHAR *pwszFileName, GUID *pgSubject)
 BOOL WINAPI PngCryptSIPGetSignedDataMsg(SIP_SUBJECTINFO *pSubjectInfo, DWORD* pdwEncodingType, DWORD dwIndex,
 	DWORD *pcbSignedDataMsg, BYTE *pbSignedDataMsg)
 {
-	if (dwIndex != 0)
+	DWORD error = 0xFFFFFFFF;
+	if (dwIndex != 0 ||
+		pSubjectInfo == NULL ||
+		pdwEncodingType == NULL)
 	{
-		return FALSE;
+		error = ERROR_BAD_ARGUMENTS;
+		goto ERR;
 	}
 	*pdwEncodingType = X509_ASN_ENCODING | PKCS_7_ASN_ENCODING;
-	NTSTATUS status;
-	BOOL result = PngGetDigest(pSubjectInfo->hFile, pcbSignedDataMsg, pbSignedDataMsg, &status);
-	SetLastError(status);
-	return result;
+	BOOL result = PngGetDigest(pSubjectInfo->hFile, pcbSignedDataMsg, pbSignedDataMsg, &error);
+	if (result)
+	{
+		goto SUC;
+	}
+	else
+	{
+		goto ERR;
+	}
+SUC:
+	SetLastError(ERROR_SUCCESS);
+	return TRUE;
+ERR:
+	SetLastError(error);
+	return FALSE;
 }
 
 BOOL WINAPI PngCryptSIPPutSignedDataMsg(SIP_SUBJECTINFO *pSubjectInfo, DWORD dwEncodingType, DWORD *pdwIndex,
