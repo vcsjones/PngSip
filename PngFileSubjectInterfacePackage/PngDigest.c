@@ -6,6 +6,8 @@
 #define BUFFER_SIZE 0x10000
 #define PNG_HEADER_SIZE 8
 #define PNG_CHUNK_HEADER_SIZE 8
+#define PNG_CRC_SIZE 4
+#define PNG_TAG_SIZE 4
 
 
 
@@ -94,9 +96,9 @@ BOOL PNGSIP_CALL HashChunk(HANDLE hFile, BCRYPT_HASH_HANDLE hHash, DWORD *error)
 	const unsigned int size = buffer[3] | buffer[2] << 8 | buffer[1] << 16 | buffer[0] << 24;
 	const unsigned char* tag = ((char*)&buffer[4]);
 
-	if (0 == memcmp(tag, PNG_SIG_CHUNK_TYPE, 4))
+	if (0 == memcmp(tag, PNG_SIG_CHUNK_TYPE, PNG_TAG_SIZE))
 	{
-		if (INVALID_SET_FILE_POINTER == SetFilePointer(hFile, size + 4, NULL, FILE_CURRENT))
+		if (INVALID_SET_FILE_POINTER == SetFilePointer(hFile, size + PNG_CRC_SIZE, NULL, FILE_CURRENT))
 		{
 			PNGSIP_ERROR_FAIL(ERROR_INVALID_OPERATION);
 		}
@@ -119,7 +121,7 @@ BOOL PNGSIP_CALL HashChunk(HANDLE hFile, BCRYPT_HASH_HANDLE hHash, DWORD *error)
 		}
 	}
 
-	DWORD remainder = (size % BUFFER_SIZE) + 4; //Add 4 to include the CRC
+	DWORD remainder = (size % BUFFER_SIZE) + PNG_CRC_SIZE;
 	if (!ReadFile(hFile, &buffer, remainder, &bytesRead, NULL))
 	{
 		PNGSIP_ERROR_FAIL_LAST_ERROR();
@@ -158,7 +160,7 @@ BOOL PNGSIP_CALL PngPutDigest(HANDLE hFile, DWORD dwSignatureSize, PBYTE pSignat
 		PNGSIP_ERROR_FAIL_LAST_ERROR();
 	}
 	unsigned long checksum = crc_init();
-	checksum = update_crc(checksum, PNG_SIG_CHUNK_TYPE, 4);
+	checksum = update_crc(checksum, PNG_SIG_CHUNK_TYPE, PNG_TAG_SIZE);
 	checksum = update_crc(checksum, pSignature, dwSignatureSize);
 	checksum = crc_finish(checksum);
 	checksum = _byteswap_ulong(checksum);
