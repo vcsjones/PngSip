@@ -163,7 +163,7 @@ BOOL WINAPI PngCryptSIPCreateIndirectData(SIP_SUBJECTINFO *pSubjectInfo, DWORD *
 	memset(pInternalIndirectData, 0, sizeof(INTERNAL_SIP_INDIRECT_DATA));
 
 	DWORD error;
-	if (PngDigestChunks(pSubjectInfo->hFile, hHashHandle, dwHashSize, &pInternalIndirectData->digest[0], &error))
+	if (!PngDigestChunks(pSubjectInfo->hFile, hHashHandle, dwHashSize, &pInternalIndirectData->digest[0], &error))
 	{
 		PNGSIP_ERROR_FAIL(error);
 	}

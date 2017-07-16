@@ -9,11 +9,20 @@ DEFINE_GUID(GUID_PNG_SIP,
 	0xda005d72, 0x4e32, 0x4d5e, 0x94, 0xc5, 0x41, 0xae, 0xcb, 0xa6, 0x50, 0xfa);
 
 #define PNGSIP_ERROR_BEGIN { \
-	DWORD _pngSipError
+	DWORD _pngSipError; \
+	BOOL  _pngSipSuccess = FALSE
 
-#define PNGSIP_ERROR_FAIL(ERR) _pngSipError = ERR; goto PNGSIP_RET
+#define PNGSIP_ERROR_FAIL(ERR) \
+	_pngSipError = ERR; \
+	_pngSipSuccess = FALSE; \
+	goto PNGSIP_RET
+
 #define PNGSIP_ERROR_FAIL_LAST_ERROR() PNGSIP_ERROR_FAIL(GetLastError())
-#define PNGSIP_ERROR_SUCCESS() _pngSipError = ERROR_SUCCESS; goto PNGSIP_RET
+
+#define PNGSIP_ERROR_SUCCESS() \
+	_pngSipError = ERROR_SUCCESS; \
+	_pngSipSuccess = TRUE; \
+	goto PNGSIP_RET
 
 #define PNGSIP_ERROR_FINISH_BEGIN_CLEANUP PNGSIP_RET: \
 	SetLastError(_pngSipError)
@@ -21,4 +30,4 @@ DEFINE_GUID(GUID_PNG_SIP,
 #define PNGSIP_ERROR_FINISH_BEGIN_CLEANUP_TRANSFER(TO) PNGSIP_RET: \
 	TO = _pngSipError
 
-#define PNGSIP_ERROR_FINISH_END_CLEANUP return _pngSipError == ERROR_SUCCESS; }
+#define PNGSIP_ERROR_FINISH_END_CLEANUP return _pngSipSuccess == TRUE; }
