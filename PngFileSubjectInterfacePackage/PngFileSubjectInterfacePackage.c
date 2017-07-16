@@ -125,54 +125,72 @@ ERR:
 BOOL WINAPI PngCryptSIPCreateIndirectData(SIP_SUBJECTINFO *pSubjectInfo, DWORD *pcbIndirectData,
 	SIP_INDIRECT_DATA *pIndirectData)
 {
-	NTSTATUS result;
-	size_t oidLen = strlen(pSubjectInfo->DigestAlgorithm.pszObjId) + sizeof(CHAR);
-	PCCRYPT_OID_INFO info = CryptFindOIDInfo(CRYPT_OID_INFO_OID_KEY, pSubjectInfo->DigestAlgorithm.pszObjId, CRYPT_HASH_ALG_OID_GROUP_ID);
-	if (info == NULL)
+	DWORD error;
+	BOOL allocdAlgorithm = FALSE, allocdHashHandle = FALSE;
+	if (pSubjectInfo == NULL || pcbIndirectData == NULL)
 	{
-		result = NTE_BAD_ALGID;
+		error = ERROR_BAD_ARGUMENTS;
 		goto RET;
 	}
-	BCRYPT_ALG_HANDLE hAlgorithm = { 0 };
-	if (!BCRYPT_SUCCESS(result = BCryptOpenAlgorithmProvider(&hAlgorithm, info->pwszCNGAlgid, NULL, 0)))
-	{
-		goto RET;
-	}
-	BCRYPT_HASH_HANDLE hHashHandle = { 0 };
-	if (!BCRYPT_SUCCESS(result = BCryptCreateHash(hAlgorithm, &hHashHandle, NULL, 0, NULL, 0, 0)))
-	{
-		goto RET;
-	}
-	DWORD dwHashSize = 0, cbHashSize = sizeof(DWORD);
-	if (!BCRYPT_SUCCESS(result = BCryptGetProperty(hHashHandle, BCRYPT_HASH_LENGTH, (PUCHAR)&dwHashSize, sizeof(DWORD), &cbHashSize, 0)))
-	{
-		goto RET;
-	}
-	if (dwHashSize > MAX_HASH_SIZE || oidLen > MAX_OID_SIZE)
-	{
-		result = NTE_BAD_ALGID;
-		goto RET;
-	}
+	// Win32 is asking how much it needs to allocate for pIndirectData
 	if (pIndirectData == NULL)
 	{
-		result = ERROR_SUCCESS;
 		*pcbIndirectData = sizeof(INTERNAL_SIP_INDIRECT_DATA);
+		error = ERROR_SUCCESS;
 		goto RET;
 	}
 	if (*pcbIndirectData < sizeof(INTERNAL_SIP_INDIRECT_DATA))
 	{
-		result = ERROR_INSUFFICIENT_BUFFER;
+		error = ERROR_INSUFFICIENT_BUFFER;
 		goto RET;
 	}
+	PCCRYPT_OID_INFO info = CryptFindOIDInfo(CRYPT_OID_INFO_OID_KEY, pSubjectInfo->DigestAlgorithm.pszObjId, CRYPT_HASH_ALG_OID_GROUP_ID);
+	if (info == NULL)
+	{
+		error = ERROR_NOT_SUPPORTED;
+		goto RET;
+	}
+	BCRYPT_ALG_HANDLE hAlgorithm = { 0 };
+	if (!BCRYPT_SUCCESS(BCryptOpenAlgorithmProvider(&hAlgorithm, info->pwszCNGAlgid, NULL, 0)))
+	{
+		error = ERROR_NOT_SUPPORTED;
+		goto RET;
+	}
+	allocdAlgorithm = TRUE;
+	BCRYPT_HASH_HANDLE hHashHandle = { 0 };
+	if (!BCRYPT_SUCCESS(BCryptCreateHash(hAlgorithm, &hHashHandle, NULL, 0, NULL, 0, 0)))
+	{
+		error = ERROR_NOT_SUPPORTED;
+		goto RET;
+	}
+	allocdHashHandle = TRUE;
+	DWORD dwHashSize = 0, cbHashSize = sizeof(DWORD);
+	if (!BCRYPT_SUCCESS(BCryptGetProperty(hHashHandle, BCRYPT_HASH_LENGTH, (PUCHAR)&dwHashSize, sizeof(DWORD), &cbHashSize, 0)))
+	{
+		error = ERROR_NOT_SUPPORTED;
+		goto RET;
+	}
+	size_t oidLen = strlen(pSubjectInfo->DigestAlgorithm.pszObjId) + sizeof(CHAR);
+	if (dwHashSize > MAX_HASH_SIZE || oidLen > MAX_OID_SIZE)
+	{
+		error = ERROR_INSUFFICIENT_BUFFER;
+		goto RET;
+	}
+	//We checked the size earlier above.
 	INTERNAL_SIP_INDIRECT_DATA* pInternalIndirectData = (INTERNAL_SIP_INDIRECT_DATA*)pIndirectData;
 	memset(pInternalIndirectData, 0, sizeof(INTERNAL_SIP_INDIRECT_DATA));
-	result = PngDigestChunks(pSubjectInfo->hFile, hHashHandle, dwHashSize, &pInternalIndirectData->digest[0]);
-	if (!SUCCEEDED(result))
+
+	error = PngDigestChunks(pSubjectInfo->hFile, hHashHandle, dwHashSize, &pInternalIndirectData->digest[0]);
+	if (!SUCCEEDED(error))
 	{
-		return FALSE;
+		goto RET;
 	}
 
-	strcpy_s(&pInternalIndirectData->oid[0], oidLen, pSubjectInfo->DigestAlgorithm.pszObjId);
+	if (0 != strcpy_s(&pInternalIndirectData->oid[0], oidLen, pSubjectInfo->DigestAlgorithm.pszObjId))
+	{
+		error = ERROR_BAD_ARGUMENTS;
+		goto RET;
+	}
 	pInternalIndirectData->indirectData.Digest.cbData = dwHashSize;
 	pInternalIndirectData->indirectData.Digest.pbData = &pInternalIndirectData->digest[0];
 	pInternalIndirectData->indirectData.DigestAlgorithm.pszObjId = pInternalIndirectData->oid;
@@ -181,19 +199,14 @@ BOOL WINAPI PngCryptSIPCreateIndirectData(SIP_SUBJECTINFO *pSubjectInfo, DWORD *
 	pInternalIndirectData->indirectData.Data.pszObjId = NULL;
 	pInternalIndirectData->indirectData.Data.Value.cbData = 0;
 	pInternalIndirectData->indirectData.Data.Value.pbData = NULL;
-	result = ERROR_SUCCESS;
+	error = ERROR_SUCCESS;
+	goto RET;
+
 RET:
-	SetLastError(result);
-	if (hAlgorithm) BCryptCloseAlgorithmProvider(hAlgorithm, 0);
-	if (hHashHandle) BCryptDestroyHash(hHashHandle);
-	if (result == ERROR_SUCCESS)
-	{
-		return TRUE;
-	}
-	else
-	{
-		return FALSE;
-	}
+	SetLastError(error);
+	if (allocdAlgorithm) BCryptCloseAlgorithmProvider(hAlgorithm, 0);
+	if (allocdHashHandle) BCryptDestroyHash(hHashHandle);
+	return error == ERROR_SUCCESS;
 }
 
 BOOL WINAPI PngCryptSIPVerifyIndirectData(SIP_SUBJECTINFO *pSubjectInfo, SIP_INDIRECT_DATA *pIndirectData)
