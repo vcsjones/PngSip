@@ -74,12 +74,11 @@ BOOL WINAPI PngCryptSIPGetSignedDataMsg(SIP_SUBJECTINFO *pSubjectInfo, DWORD* pd
 		pSubjectInfo == NULL ||
 		pdwEncodingType == NULL)
 	{
-		PNGSIP_ERROR_FAIL(ERROR_BAD_ARGUMENTS);
+		PNGSIP_ERROR_FAIL(ERROR_INVALID_PARAMETER);
 	}
 	*pdwEncodingType = X509_ASN_ENCODING | PKCS_7_ASN_ENCODING;
 	DWORD error;
-	BOOL result = PngGetDigest(pSubjectInfo->hFile, pcbSignedDataMsg, pbSignedDataMsg, &error);
-	if (result)
+	if (PngGetDigest(pSubjectInfo->hFile, pcbSignedDataMsg, pbSignedDataMsg, &error))
 	{
 		PNGSIP_ERROR_SUCCESS();
 	}
@@ -98,11 +97,10 @@ BOOL WINAPI PngCryptSIPPutSignedDataMsg(SIP_SUBJECTINFO *pSubjectInfo, DWORD dwE
 	if (*pdwIndex != 0 || pSubjectInfo == NULL
 		|| pbSignedDataMsg == NULL)
 	{
-		PNGSIP_ERROR_FAIL(ERROR_BAD_ARGUMENTS);
+		PNGSIP_ERROR_FAIL(ERROR_INVALID_PARAMETER);
 	}
 	DWORD error;
-	BOOL result = PngPutDigest(pSubjectInfo->hFile, cbSignedDataMsg, pbSignedDataMsg, &error);
-	if (result)
+	if (PngPutDigest(pSubjectInfo->hFile, cbSignedDataMsg, pbSignedDataMsg, &error))
 	{
 		PNGSIP_ERROR_SUCCESS();
 	}
@@ -121,7 +119,7 @@ BOOL WINAPI PngCryptSIPCreateIndirectData(SIP_SUBJECTINFO *pSubjectInfo, DWORD *
 	BOOL allocdAlgorithm = FALSE, allocdHashHandle = FALSE;
 	if (pSubjectInfo == NULL || pcbIndirectData == NULL)
 	{
-		PNGSIP_ERROR_FAIL(ERROR_BAD_ARGUMENTS);
+		PNGSIP_ERROR_FAIL(ERROR_INVALID_PARAMETER);
 	}
 	// Win32 is asking how much it needs to allocate for pIndirectData
 	if (pIndirectData == NULL)
@@ -172,7 +170,7 @@ BOOL WINAPI PngCryptSIPCreateIndirectData(SIP_SUBJECTINFO *pSubjectInfo, DWORD *
 
 	if (0 != strcpy_s(&pInternalIndirectData->oid[0], oidLen, pSubjectInfo->DigestAlgorithm.pszObjId))
 	{
-		PNGSIP_ERROR_FAIL(ERROR_BAD_ARGUMENTS);
+		PNGSIP_ERROR_FAIL(ERROR_INVALID_PARAMETER);
 	}
 	pInternalIndirectData->indirectData.Digest.cbData = dwHashSize;
 	pInternalIndirectData->indirectData.Digest.pbData = &pInternalIndirectData->digest[0];
@@ -192,46 +190,58 @@ BOOL WINAPI PngCryptSIPCreateIndirectData(SIP_SUBJECTINFO *pSubjectInfo, DWORD *
 
 BOOL WINAPI PngCryptSIPVerifyIndirectData(SIP_SUBJECTINFO *pSubjectInfo, SIP_INDIRECT_DATA *pIndirectData)
 {
-	NTSTATUS result;
-	BOOL success = FALSE;
-	PCCRYPT_OID_INFO info = CryptFindOIDInfo(CRYPT_OID_INFO_OID_KEY, pIndirectData->DigestAlgorithm.pszObjId, CRYPT_HASH_ALG_OID_GROUP_ID);
+	PNGSIP_ERROR_BEGIN;
+	BOOL allocdAlgorithm = FALSE, allocdHashHandle = FALSE;
+	if (pSubjectInfo == NULL || pIndirectData == NULL)
+	{
+		PNGSIP_ERROR_FAIL(ERROR_INVALID_PARAMETER);
+	}
+	PCCRYPT_OID_INFO info = CryptFindOIDInfo(CRYPT_OID_INFO_OID_KEY, pSubjectInfo->DigestAlgorithm.pszObjId, CRYPT_HASH_ALG_OID_GROUP_ID);
 	if (info == NULL)
 	{
-		result = NTE_BAD_ALGID;
-		goto RET;
+		PNGSIP_ERROR_FAIL(ERROR_INVALID_PARAMETER);
 	}
 	BCRYPT_ALG_HANDLE hAlgorithm = { 0 };
-	if (!BCRYPT_SUCCESS(result = BCryptOpenAlgorithmProvider(&hAlgorithm, info->pwszCNGAlgid, NULL, 0)))
+	if (!BCRYPT_SUCCESS(BCryptOpenAlgorithmProvider(&hAlgorithm, info->pwszCNGAlgid, NULL, 0)))
 	{
-		goto RET;
+		PNGSIP_ERROR_FAIL(ERROR_NOT_SUPPORTED);
 	}
+	allocdAlgorithm = TRUE;
 	BCRYPT_HASH_HANDLE hHashHandle = { 0 };
-	if (!BCRYPT_SUCCESS(result = BCryptCreateHash(hAlgorithm, &hHashHandle, NULL, 0, NULL, 0, 0)))
+	if (!BCRYPT_SUCCESS(BCryptCreateHash(hAlgorithm, &hHashHandle, NULL, 0, NULL, 0, 0)))
 	{
-		goto RET;
+		PNGSIP_ERROR_FAIL(ERROR_NOT_SUPPORTED);
 	}
+	allocdHashHandle = TRUE;
 	DWORD dwHashSize = 0, cbHashSize = sizeof(DWORD);
-	if (!BCRYPT_SUCCESS(result = BCryptGetProperty(hHashHandle, BCRYPT_HASH_LENGTH, (PUCHAR)&dwHashSize, sizeof(DWORD), &cbHashSize, 0)))
+	if (!BCRYPT_SUCCESS(BCryptGetProperty(hHashHandle, BCRYPT_HASH_LENGTH, (PUCHAR)&dwHashSize, sizeof(DWORD), &cbHashSize, 0)))
 	{
-		goto RET;
+		PNGSIP_ERROR_FAIL(ERROR_NOT_SUPPORTED);
 	}
 	if (dwHashSize > MAX_HASH_SIZE || dwHashSize != pIndirectData->Digest.cbData)
 	{
-		result = NTE_BAD_ALGID;
-		goto RET;
+		PNGSIP_ERROR_FAIL(ERROR_INVALID_PARAMETER);
 	}
 	BYTE digestBuffer[MAX_HASH_SIZE];
-	result = PngDigestChunks(pSubjectInfo->hFile, hHashHandle, dwHashSize, &digestBuffer[0]);
+	NTSTATUS result = PngDigestChunks(pSubjectInfo->hFile, hHashHandle, dwHashSize, &digestBuffer[0]);
 	if (!SUCCEEDED(result))
 	{
-		goto RET;
+		//TODO: Fix digest chunks and carry that along.
+		PNGSIP_ERROR_FAIL(result);
 	}
-	success = memcmp(&digestBuffer, pIndirectData->Digest.pbData, dwHashSize) == 0;
-RET:
-	SetLastError(result);
-	if (hAlgorithm) BCryptCloseAlgorithmProvider(hAlgorithm, 0);
-	if (hHashHandle) BCryptDestroyHash(hHashHandle);
-	return success;
+	if (0 == memcmp(&digestBuffer, pIndirectData->Digest.pbData, dwHashSize))
+	{
+		PNGSIP_ERROR_SUCCESS();
+	}
+	else
+	{
+		PNGSIP_ERROR_FAIL(TRUST_E_SUBJECT_NOT_TRUSTED);
+	}
+
+	PNGSIP_ERROR_FINISH_BEGIN_CLEANUP;
+	if (allocdAlgorithm) BCryptCloseAlgorithmProvider(hAlgorithm, 0);
+	if (allocdHashHandle) BCryptDestroyHash(hHashHandle);
+	PNGSIP_ERROR_FINISH_END_CLEANUP;
 }
 
 BOOL WINAPI PngCryptSIPRemoveSignedDataMsg(SIP_SUBJECTINFO *pSubjectInfo, DWORD dwIndex)
