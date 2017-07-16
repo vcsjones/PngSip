@@ -240,7 +240,8 @@ BOOL PNGSIP_CALL PngGetDigest(HANDLE hFile, DWORD* pcbSignatureSize, PBYTE pSign
 		*pcbSignatureSize = totalRead;
 		PNGSIP_ERROR_SUCCESS();
 	}
-	PNGSIP_ERROR_FAIL(TRUST_E_SUBJECT_NOT_TRUSTED);
+	//We should not get out of the loop without going to success
+	PNGSIP_ERROR_FAIL(TRUST_E_NOSIGNATURE);
 
 	PNGSIP_ERROR_FINISH_BEGIN_CLEANUP_TRANSFER(*error);
 	PNGSIP_ERROR_FINISH_END_CLEANUP;

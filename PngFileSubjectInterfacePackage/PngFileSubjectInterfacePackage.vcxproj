@@ -92,6 +92,7 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <ModuleDefinitionFile>PngSIP.def</ModuleDefinitionFile>
+      <AdditionalDependencies>crypt32.lib;bcrypt.lib;ncrypt.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
