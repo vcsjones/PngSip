@@ -134,14 +134,12 @@ ERR:
 	return FALSE;
 }
 
-BOOL PNGSIP_CALL PngPutDigest(HANDLE hFile, DWORD dwSignatureSize, PBYTE pSignature, NTSTATUS *result)
+BOOL PNGSIP_CALL PngPutDigest(HANDLE hFile, DWORD dwSignatureSize, PBYTE pSignature, DWORD* error)
 {
-	DWORD status;
-	status = SetFilePointer(hFile, -12, NULL, FILE_END);
-	if (status == INVALID_SET_FILE_POINTER)
+	PNGSIP_ERROR_BEGIN;
+	if (SetFilePointer(hFile, -12, NULL, FILE_END) == INVALID_SET_FILE_POINTER)
 	{
-		*result = GetLastError();
-		return FALSE;
+		PNGSIP_ERROR_FAIL(ERROR_BAD_FORMAT);
 	}
 
 	DWORD dwBytesWritten;
@@ -149,18 +147,15 @@ BOOL PNGSIP_CALL PngPutDigest(HANDLE hFile, DWORD dwSignatureSize, PBYTE pSignat
 
 	if (!WriteFile(hFile, &dwSignatureSizeBigEndian, sizeof(DWORD), &dwBytesWritten, NULL))
 	{
-		*result = GetLastError();
-		return FALSE;
+		PNGSIP_ERROR_FAIL_LAST_ERROR();
 	}
 	if (!WriteFile(hFile, PNG_SIG_CHUNK_TYPE, 4, &dwBytesWritten, NULL))
 	{
-		*result = GetLastError();
-		return FALSE;
+		PNGSIP_ERROR_FAIL_LAST_ERROR();
 	}
 	if (!WriteFile(hFile, pSignature, dwSignatureSize, &dwBytesWritten, NULL))
 	{
-		*result = GetLastError();
-		return FALSE;
+		PNGSIP_ERROR_FAIL_LAST_ERROR();
 	}
 	unsigned long checksum = crc_init();
 	checksum = update_crc(checksum, PNG_SIG_CHUNK_TYPE, 4);
@@ -169,18 +164,17 @@ BOOL PNGSIP_CALL PngPutDigest(HANDLE hFile, DWORD dwSignatureSize, PBYTE pSignat
 	checksum = _byteswap_ulong(checksum);
 	if (!WriteFile(hFile, &checksum, sizeof(DWORD), &dwBytesWritten, NULL))
 	{
-		*result = GetLastError();
-		return FALSE;
+		PNGSIP_ERROR_FAIL_LAST_ERROR();
 	}
 
 	BYTE iendChunk[12] = { 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82 };
 	if (!WriteFile(hFile, &iendChunk, 12, &dwBytesWritten, NULL))
 	{
-		*result = GetLastError();
-		return FALSE;
+		PNGSIP_ERROR_FAIL_LAST_ERROR();
 	}
-	*result = ERROR_SUCCESS;
-	return TRUE;
+	PNGSIP_ERROR_SUCCESS();
+	PNGSIP_ERROR_FINISH_BEGIN_CLEANUP_TRANSFER(*error);
+	PNGSIP_ERROR_FINISH_END_CLEANUP;
 }
 
 BOOL PNGSIP_CALL PngGetDigest(HANDLE hFile, DWORD* pcbSignatureSize, PBYTE pSignature, DWORD *error)
