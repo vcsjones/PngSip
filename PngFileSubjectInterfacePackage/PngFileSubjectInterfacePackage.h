@@ -9,7 +9,6 @@
 HRESULT PNGSIP_CALL DllRegisterServer();
 HRESULT PNGSIP_CALL DllUnregisterServer();
 
-
 typedef struct INTERNAL_SIP_INDIRECT_DATA_
 {
 	SIP_INDIRECT_DATA indirectData;

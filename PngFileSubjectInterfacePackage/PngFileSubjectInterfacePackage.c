@@ -98,15 +98,28 @@ ERR:
 BOOL WINAPI PngCryptSIPPutSignedDataMsg(SIP_SUBJECTINFO *pSubjectInfo, DWORD dwEncodingType, DWORD *pdwIndex,
 	DWORD cbSignedDataMsg, BYTE *pbSignedDataMsg)
 {
-	if (*pdwIndex != 0)
+	DWORD error;
+	if (*pdwIndex != 0 || pSubjectInfo == NULL
+		|| pbSignedDataMsg == NULL)
 	{
-		return FALSE;
+		error = ERROR_BAD_ARGUMENTS;
+		goto ERR;
 	}
-
-	NTSTATUS status;
-	BOOL result = PngPutDigest(pSubjectInfo->hFile, cbSignedDataMsg, pbSignedDataMsg, &status);
-	SetLastError(status);
-	return result;
+	BOOL result = PngPutDigest(pSubjectInfo->hFile, cbSignedDataMsg, pbSignedDataMsg, &error);
+	if (result)
+	{
+		goto SUC;
+	}
+	else
+	{
+		goto ERR;
+	}
+SUC:
+	SetLastError(ERROR_SUCCESS);
+	return TRUE;
+ERR:
+	SetLastError(error);
+	return FALSE;
 }
 
 BOOL WINAPI PngCryptSIPCreateIndirectData(SIP_SUBJECTINFO *pSubjectInfo, DWORD *pcbIndirectData,
