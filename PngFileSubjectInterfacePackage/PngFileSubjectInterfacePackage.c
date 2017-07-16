@@ -6,12 +6,15 @@
 
 STDAPI DllRegisterServer()
 {
-	SIP_ADD_NEWPROVIDER provider;
-	memset(&provider, 0, sizeof(SIP_ADD_NEWPROVIDER));
+	SIP_ADD_NEWPROVIDER provider = { 0 };
 	GUID subjectGuid = GUID_PNG_SIP;
 	provider.cbStruct = sizeof(SIP_ADD_NEWPROVIDER);
 	provider.pgSubject = &subjectGuid;
+#ifdef _WIN64
 	provider.pwszDLLFileName = L"C:\\Windows\\System32\\pngsip.dll";
+#else
+	provider.pwszDLLFileName = L"C:\\Windows\\SYSWOW64\\pngsip.dll";
+#endif
 	provider.pwszGetFuncName = L"PngCryptSIPGetSignedDataMsg";
 	provider.pwszPutFuncName = L"PngCryptSIPPutSignedDataMsg";
 	provider.pwszCreateFuncName = L"PngCryptSIPCreateIndirectData";
