@@ -183,12 +183,12 @@ BOOL PNGSIP_CALL PngPutDigest(HANDLE hFile, DWORD dwSignatureSize, PBYTE pSignat
 	return TRUE;
 }
 
-BOOL PNGSIP_CALL PngGetDigest(HANDLE hFile, DWORD* pcbSignatureSize, PBYTE pSignature, NTSTATUS *result)
+BOOL PNGSIP_CALL PngGetDigest(HANDLE hFile, DWORD* pcbSignatureSize, PBYTE pSignature, DWORD *error)
 {
-	NTSTATUS status;
+	DWORD dwError;
 	if (SetFilePointer(hFile, PNG_HEADER_SIZE, NULL, FILE_BEGIN) == INVALID_SET_FILE_POINTER)
 	{
-		status = GetLastError();
+		dwError = ERROR_BAD_FORMAT;
 		goto ERR;
 	}
 	DWORD bytesRead = 0, totalRead = 0;
@@ -197,36 +197,42 @@ BOOL PNGSIP_CALL PngGetDigest(HANDLE hFile, DWORD* pcbSignatureSize, PBYTE pSign
 	{
 		if (!ReadFile(hFile, &buffer[0], PNG_CHUNK_HEADER_SIZE, &bytesRead, NULL))
 		{
-			status = GetLastError();
+			dwError = GetLastError();
 			goto ERR;
 		}
 		if (bytesRead < PNG_CHUNK_HEADER_SIZE)
 		{
-			status = ERROR_BAD_FORMAT;
+			dwError = ERROR_BAD_FORMAT;
 			goto ERR;
 		}
 		const unsigned int size = buffer[3] | buffer[2] << 8 | buffer[1] << 16 | buffer[0] << 24;
 		const unsigned char* tag = ((char*)&buffer[4]);
 		if (memcmp(tag, PNG_SIG_CHUNK_TYPE, 4) != 0)
 		{
-			SetFilePointer(hFile, size + 4, NULL, FILE_CURRENT);
+			if (SetFilePointer(hFile, size + 4, NULL, FILE_CURRENT) == INVALID_SET_FILE_POINTER)
+			{
+				dwError = ERROR_BAD_FORMAT;
+				goto ERR;
+			}
 			continue;
 		}
+		// Win32 is asking how big of a buffer it needs. Set the size and exit.
 		if (pSignature == NULL)
 		{
 			*pcbSignatureSize = size;
-			goto SUCCESS;
+			goto SUC;
 		}
+		// It supplied a buffer, but it wasn't big enough.
 		else if (*pcbSignatureSize < size)
 		{
-			status = ERROR_INSUFFICIENT_BUFFER;
+			dwError = ERROR_INSUFFICIENT_BUFFER;
 			goto ERR;
 		}
 		for (DWORD i = 0; i < size / BUFFER_SIZE; i++)
 		{
 			if (!ReadFile(hFile, &buffer, BUFFER_SIZE, &bytesRead, NULL))
 			{
-				status = GetLastError();
+				dwError = GetLastError();
 				goto ERR;
 			}
 			memcpy(pSignature + totalRead, &buffer[0], bytesRead);
@@ -237,19 +243,19 @@ BOOL PNGSIP_CALL PngGetDigest(HANDLE hFile, DWORD* pcbSignatureSize, PBYTE pSign
 		{
 			if (!ReadFile(hFile, &buffer, remainder, &bytesRead, NULL))
 			{
-				status = GetLastError();
+				dwError = GetLastError();
 				goto ERR;
 			}
 			memcpy(pSignature + totalRead, &buffer[0], bytesRead);
 			totalRead += bytesRead;
 		}
 		*pcbSignatureSize = totalRead;
-		goto SUCCESS;
+		goto SUC;
 	}
-SUCCESS:
-	*result = ERROR_SUCCESS;
+SUC:
+	*error = ERROR_SUCCESS;
 	return TRUE;
 ERR:
-	*result = status;
+	*error = dwError;
 	return FALSE;
 }
